@@ -45,4 +45,4 @@
 
 /* device path */
 // ? No Idea, Guess
-#define MM_I2C0_DEVICE_PATH "/dev/mm_i2c0"
+#define MOTOR_MANAGEMENT0_DEVICE_PATH "/dev/motor_management0"

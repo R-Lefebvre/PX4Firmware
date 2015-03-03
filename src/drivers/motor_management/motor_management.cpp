@@ -77,28 +77,28 @@
 #include <drivers/drv_motor_management.h>
 #include <drivers/device/ringbuffer.h>
 
-#define MM_I2C_BUS			PX4_I2C_BUS_EXPANSION
-#define MM_I2C_ADDR					0x36	///< I2C address
+#define MOTOR_MANAGEMENT_BUS			PX4_I2C_BUS_EXPANSION
+#define MOTOR_MANAGEMENT_ADDR					0x36	///< I2C address
 
-#define MM_I2C_REQUEST_PPM_1				0x20
-#define MM_I2C_REQUEST_PPM_2				0x21
-#define MM_I2C_REQUEST_PPM_3				0x22
-#define MM_I2C_REQUEST_PPM_4				0x23
-#define MM_I2C_REQUEST_TEMP_1				0x24
-#define MM_I2C_REQUEST_TEMP_2				0x25
-#define MM_I2C_MEASUREMENT_INTERVAL_MS		(1000000 / 20)	///< time in microseconds, measure at 20hz
-#define MM_I2C_TIMEOUT_MS		10000000	///< timeout looking for motor manager 10seconds after startup
+#define MOTOR_MANAGEMENT_REQUEST_PPM_1				0x20
+#define MOTOR_MANAGEMENT_REQUEST_PPM_2				0x21
+#define MOTOR_MANAGEMENT_REQUEST_PPM_3				0x22
+#define MOTOR_MANAGEMENT_REQUEST_PPM_4				0x23
+#define MOTOR_MANAGEMENT_REQUEST_TEMP_1				0x24
+#define MOTOR_MANAGEMENT_REQUEST_TEMP_2				0x25
+#define MOTOR_MANAGEMENT_MEASUREMENT_INTERVAL_MS		(1000000 / 20)	///< time in microseconds, measure at 20hz
+#define MOTOR_MANAGEMENT_TIMEOUT_MS		10000000	///< timeout looking for motor manager 10seconds after startup
 
 #ifndef CONFIG_SCHED_WORKQUEUE
 # error This requires CONFIG_SCHED_WORKQUEUE.
 #endif
 
-class MM_I2C : public device::I2C
+class MOTOR_MANAGEMENT : public device::I2C
 {
 public:
-	MM_I2C(int bus = PX4_I2C_BUS_EXPANSION, uint16_t mm_i2c_addr = MM_I2C_ADDR);
+	MOTOR_MANAGEMENT(int bus = PX4_I2C_BUS_EXPANSION, uint16_t motor_management_addr = MOTOR_MANAGEMENT_ADDR);
 	//Destructor
-	virtual ~MM_I2C();
+	virtual ~MOTOR_MANAGEMENT();
 
 	/**
 	 * Initialize device
@@ -172,15 +172,15 @@ private:
 
 namespace
 {
-MM_I2C *g_motor_management;	///< device handle. 
+MOTOR_MANAGEMENT *g_motor_management;	///< device handle. 
 }
 
-void mm_i2c_usage();
+void motor_management_usage();
 
-extern "C" __EXPORT int mm_i2c_main(int argc, char *argv[]);
+extern "C" __EXPORT int motor_management_main(int argc, char *argv[]);
 
-MM_I2C::MM_I2C(int bus, uint16_t mm_i2c_addr) :
-	I2C("mm_i2c", MM_I2C0_DEVICE_PATH, bus, mm_i2c_addr, 100000),		// ? Child of I2C object?
+MOTOR_MANAGEMENT::MOTOR_MANAGEMENT(int bus, uint16_t motor_management_addr) :
+	I2C("motor_management", MOTOR_MANAGEMENT0_DEVICE_PATH, bus, motor_management_addr, 100000),		// ? Child of I2C object?
 	_enabled(false),
 	_work{},
 	_reports(nullptr),
@@ -195,7 +195,7 @@ MM_I2C::MM_I2C(int bus, uint16_t mm_i2c_addr) :
 	_start_time = hrt_absolute_time();
 }
 
-MM_I2C::~MM_I2C()
+MOTOR_MANAGEMENT::~MOTOR_MANAGEMENT()
 {
 	// make sure we are truly inactive
 	stop();
@@ -206,7 +206,7 @@ MM_I2C::~MM_I2C()
 }
 
 int
-MM_I2C::init()
+MOTOR_MANAGEMENT::init()
 {
 	int ret = ENOTTY;
 
@@ -237,7 +237,7 @@ MM_I2C::init()
 }
 
 int
-MM_I2C::test()
+MOTOR_MANAGEMENT::test()
 {
 	int sub = orb_subscribe(ORB_ID(motor_management));
 	bool updated = false;
@@ -264,17 +264,17 @@ MM_I2C::test()
 }
 
 int
-MM_I2C::search()
+MOTOR_MANAGEMENT::search()
 {
 	bool found_slave = false;
 	uint16_t tmp;
 
 // Only one possible address to search
-		set_address(MM_I2C_ADDR);
+		set_address(MOTOR_MANAGEMENT_ADDR);
 
 // ? What is "OK" ?
-		if (read_reg(MM_I2C_REQUEST_PPM_1, tmp) == OK) {
-			warnx("motor manager found at 0x%x", (int)MM_I2C_ADDR);
+		if (read_reg(MOTOR_MANAGEMENT_REQUEST_PPM_1, tmp) == OK) {
+			warnx("motor manager found at 0x%x", (int)MOTOR_MANAGEMENT_ADDR);
 			found_slave = true;
 		}
 
@@ -290,44 +290,44 @@ MM_I2C::search()
 }
 
 int
-MM_I2C::probe()
+MOTOR_MANAGEMENT::probe()
 {
 	// always return OK to ensure device starts
 	return OK;
 }
 
 void
-MM_I2C::start()
+MOTOR_MANAGEMENT::start()
 {
 	// reset the report ring and state machine
 	_reports->flush();
 
 	// schedule a cycle to start things
-	work_queue(HPWORK, &_work, (worker_t)&MM_I2C::cycle_trampoline, this, 1);
+	work_queue(HPWORK, &_work, (worker_t)&MOTOR_MANAGEMENT::cycle_trampoline, this, 1);
 }
 
 void
-MM_I2C::stop()
+MOTOR_MANAGEMENT::stop()
 {
 	work_cancel(HPWORK, &_work);
 }
 
 void
-MM_I2C::cycle_trampoline(void *arg)
+MOTOR_MANAGEMENT::cycle_trampoline(void *arg)
 {
-	MM_I2C *dev = (MM_I2C *)arg;
+	MOTOR_MANAGEMENT *dev = (MOTOR_MANAGEMENT *)arg;
 
 	dev->cycle();
 }
 
 void
-MM_I2C::cycle()
+MOTOR_MANAGEMENT::cycle()
 {
 	// get current time
 	uint64_t now = hrt_absolute_time();
 
 	// exit without rescheduling if we have failed to find a motor manager after 10 seconds
-	if (!_enabled && (now - _start_time > MM_I2C_TIMEOUT_MS)) {
+	if (!_enabled && (now - _start_time > MOTOR_MANAGEMENT_TIMEOUT_MS)) {
 		warnx("did not find motor manager");
 		return;
 	}
@@ -340,7 +340,7 @@ MM_I2C::cycle()
 
 	union D_Buff {uint8_t D_Buff_byte[4]; float D_Buff_float[1];} D_Buff_Union;
 
-	if (read_block(MM_I2C_REQUEST_TEMP_1, D_Buff_Union.D_Buff_byte, 4, false) == 4) {
+	if (read_block(MOTOR_MANAGEMENT_REQUEST_TEMP_1, D_Buff_Union.D_Buff_byte, 4, false) == 4) {
 		// initialise new_report
 		memset(&new_report, 0, sizeof(new_report));
 
@@ -372,12 +372,12 @@ MM_I2C::cycle()
 	}
 
 	// schedule a fresh cycle call when the measurement is done
-	work_queue(HPWORK, &_work, (worker_t)&MM_I2C::cycle_trampoline, this,
-		   USEC2TICK(MM_I2C_MEASUREMENT_INTERVAL_MS));
+	work_queue(HPWORK, &_work, (worker_t)&MOTOR_MANAGEMENT::cycle_trampoline, this,
+		   USEC2TICK(MOTOR_MANAGEMENT_MEASUREMENT_INTERVAL_MS));
 }
 
 int
-MM_I2C::read_reg(uint8_t reg, uint16_t &val)
+MOTOR_MANAGEMENT::read_reg(uint8_t reg, uint16_t &val)
 {
 	uint8_t buff[1];	// 1 byte of data
 
@@ -389,7 +389,7 @@ MM_I2C::read_reg(uint8_t reg, uint16_t &val)
 }
 
 uint8_t
-MM_I2C::read_block(uint8_t reg, uint8_t *data, uint8_t max_len, bool append_zero)
+MOTOR_MANAGEMENT::read_block(uint8_t reg, uint8_t *data, uint8_t max_len, bool append_zero)
 {
 	uint8_t buff[max_len];  // buffer to hold results
 
@@ -427,19 +427,19 @@ MM_I2C::read_block(uint8_t reg, uint8_t *data, uint8_t max_len, bool append_zero
 ///////////////////////// shell functions ///////////////////////
 
 void
-mm_i2c_usage()
+motor_management_usage()
 {
 	warnx("missing command: try 'start', 'test', 'stop', 'search'");
 	warnx("options:");
-	warnx("    -b i2cbus (%d)", MM_I2C_BUS);
-	warnx("    -a addr (0x%x)", MM_I2C_ADDR);
+	warnx("    -b i2cbus (%d)", MOTOR_MANAGEMENT_BUS);
+	warnx("    -a addr (0x%x)", MOTOR_MANAGEMENT_ADDR);
 }
 
 int
-mm_i2c_main(int argc, char *argv[])
+motor_management_main(int argc, char *argv[])
 {
-	int i2cdevice = MM_I2C_BUS;
-	int mm_i2cadr = MM_I2C_ADDR; // 7bit address
+	int i2cdevice = MOTOR_MANAGEMENT_BUS;
+	int motor_managementaddr = MOTOR_MANAGEMENT_ADDR; // 7bit address
 
 	int ch;
 
@@ -447,7 +447,7 @@ mm_i2c_main(int argc, char *argv[])
 	while ((ch = getopt(argc, argv, "a:b:")) != EOF) {
 		switch (ch) {
 		case 'a':
-			mm_i2cadr = strtol(optarg, NULL, 0);
+			motor_managementaddr = strtol(optarg, NULL, 0);
 			break;
 
 		case 'b':
@@ -455,13 +455,13 @@ mm_i2c_main(int argc, char *argv[])
 			break;
 
 		default:
-			mm_i2c_usage();
+			motor_management_usage();
 			exit(0);
 		}
 	}
 
 	if (optind >= argc) {
-		mm_i2c_usage();
+		motor_management_usage();
 		exit(1);
 	}
 
@@ -473,7 +473,7 @@ mm_i2c_main(int argc, char *argv[])
 
 		} else {
 			// create new global object
-			g_motor_management = new MM_I2C(i2cdevice, mm_i2cadr);
+			g_motor_management = new MOTOR_MANAGEMENT(i2cdevice, motor_managementaddr);
 
 			if (g_motor_management == nullptr) {
 				errx(1, "new failed");
@@ -492,7 +492,7 @@ mm_i2c_main(int argc, char *argv[])
 	/* need the driver past this point */
 	if (g_motor_management == nullptr) {
 		warnx("not started");
-		mm_i2c_usage();
+		motor_management_usage();
 		exit(1);
 	}
 
@@ -512,6 +512,6 @@ mm_i2c_main(int argc, char *argv[])
 		exit(0);
 	}
 
-	mm_i2c_usage();
+	motor_management_usage();
 	exit(0);
 }
