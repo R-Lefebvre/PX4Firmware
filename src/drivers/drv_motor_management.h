@@ -32,7 +32,7 @@
  ****************************************************************************/
 
 /**
- * @file drv_batt_smbus.h
+ * @file drv_motor_management.h
  *
  * SMBus battery monitor device API
  */
