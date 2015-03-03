@@ -96,6 +96,9 @@ ORB_DEFINE(safety, struct safety_s);
 #include "topics/battery_status.h"
 ORB_DEFINE(battery_status, struct battery_status_s);
 
+#include "topics/motor_management.h"
+ORB_DEFINE(motor_management, struct motor_management_s);
+
 #include "topics/servorail_status.h"
 ORB_DEFINE(servorail_status, struct servorail_status_s);
 
