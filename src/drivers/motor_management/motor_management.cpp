@@ -340,11 +340,11 @@ MM_I2C::cycle()
 
 	union D_Buff {uint8_t D_Buff_byte[4]; float D_Buff_float[1];} D_Buff_Union;
 
-	if (read_block(MM_I2C_REQUEST_TEMP_1, D_Buff_Union, 4, false) == 4) {
+	if (read_block(MM_I2C_REQUEST_TEMP_1, D_Buff_Union.D_Buff_byte, 4, false) == 4) {
 		// initialise new_report
 		memset(&new_report, 0, sizeof(new_report));
 
-		new_report.ppm_1 = D_Buff_Union.D_Buff_float[1];
+		new_report.ppm_1 = D_Buff_Union.D_Buff_float[0];
 
 		// publish to orb
 		if (_motor_management_topic != -1) {
