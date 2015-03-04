@@ -36,7 +36,7 @@
  *
  * Driver for a motor management device connected via SMBus (I2C).
  *
- * @author Randy Mackay <rmackay9@yahoo.com> and Robert Lefebvre <robert.lefebvre@gmail.com>
+ * @author Robert Lefebvre <robert.lefebvre@gmail.com>
  */
 
 #include <nuttx/config.h>
@@ -158,7 +158,7 @@ private:
 	 * Read block from bus
 	 * @return returns number of characters read if successful, zero if unsuccessful
 	 */
-	uint8_t			read_block(uint8_t reg, uint8_t *data, uint8_t max_len, bool append_zero);
+	uint8_t			read_block(uint8_t reg, uint8_t *data, uint8_t max_len);
 
 	// internal variables
 	bool			_enabled;	///< true if we have successfully connected to motor manager
@@ -180,7 +180,7 @@ void motor_management_usage();
 extern "C" __EXPORT int motor_management_main(int argc, char *argv[]);
 
 MOTOR_MANAGEMENT::MOTOR_MANAGEMENT(int bus, uint16_t motor_management_addr) :
-	I2C("motor_management", MOTOR_MANAGEMENT0_DEVICE_PATH, bus, motor_management_addr, 100000),		// ? Child of I2C object?
+	I2C("motor_management", MOTOR_MANAGEMENT0_DEVICE_PATH, bus, motor_management_addr, 100000),
 	_enabled(false),
 	_work{},
 	_reports(nullptr),
@@ -267,16 +267,12 @@ int
 MOTOR_MANAGEMENT::search()
 {
 	bool found_slave = false;
-	uint16_t tmp;
+	uint8_t tmp[4];
 
-// Only one possible address to search
-		set_address(MOTOR_MANAGEMENT_ADDR);
-
-// ? What is "OK" ?
-		if (read_reg(MOTOR_MANAGEMENT_REQUEST_PPM_1, tmp) == OK) {
-			warnx("motor manager found at 0x%x", (int)MOTOR_MANAGEMENT_ADDR);
-			found_slave = true;
-		}
+	if (read_block(MOTOR_MANAGEMENT_REQUEST_TEMP_1, tmp, 4) == 4){
+		warnx("motor manager found at 0x%x", (int)MOTOR_MANAGEMENT_ADDR);
+		found_slave = true;
+	}
 
 	// display completion message
 	if (found_slave) {
@@ -340,7 +336,7 @@ MOTOR_MANAGEMENT::cycle()
 
 	union D_Buff {uint8_t D_Buff_byte[4]; float D_Buff_float[1];} D_Buff_Union;
 
-	if (read_block(MOTOR_MANAGEMENT_REQUEST_TEMP_1, D_Buff_Union.D_Buff_byte, 4, false) == 4) {
+	if (read_block(MOTOR_MANAGEMENT_REQUEST_TEMP_1, D_Buff_Union.D_Buff_byte, 4) == OK) {
 		// initialise new_report
 		memset(&new_report, 0, sizeof(new_report));
 
@@ -389,39 +385,29 @@ MOTOR_MANAGEMENT::read_reg(uint8_t reg, uint16_t &val)
 }
 
 uint8_t
-MOTOR_MANAGEMENT::read_block(uint8_t reg, uint8_t *data, uint8_t max_len, bool append_zero)
+MOTOR_MANAGEMENT::read_block(uint8_t reg, uint8_t *data, uint8_t max_len)
 {
-	uint8_t buff[max_len];  // buffer to hold results
+	_debug_enabled = true;
+	uint8_t buff_out[2] {reg, max_len};
+	uint8_t buff_in[max_len];  // buffer to hold results
 
 	usleep(1);
 
 	// read bytes
-	int ret = transfer(&reg, 1, buff, max_len);
+	int ret = transfer(buff_out, 2, buff_in, max_len);
+	debug("Return: %d \n", ret);
 
 	// return zero on failure
 	if (ret != OK) {
-		return 0;
-	}
-
-	// get length
-	// ? Huh?
-	uint8_t bufflen = buff[0];
-
-	// sanity check length returned by smbus
-	if (bufflen == 0 || bufflen > max_len) {
-		return 0;
+		return ret;
 	}
 
 	// copy data
-	memcpy(data, &buff[1], bufflen);
+	memcpy(data, buff_in, max_len);
 
-	// optionally add zero to end
-	if (append_zero) {
-		data[bufflen] = '\0';
-	}
-
+    _debug_enabled = false;
 	// return success
-	return bufflen;
+	return ret;
 }
 
 ///////////////////////// shell functions ///////////////////////
