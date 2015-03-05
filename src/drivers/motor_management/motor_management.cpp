@@ -86,6 +86,15 @@
 #define MOTOR_MANAGEMENT_REQUEST_PPM_4				0x23
 #define MOTOR_MANAGEMENT_REQUEST_TEMP_1				0x24
 #define MOTOR_MANAGEMENT_REQUEST_TEMP_2				0x25
+#define D_BUFF_PPM_1								0
+#define D_BUFF_PPM_2								1
+#define D_BUFF_PPM_3								2
+#define D_BUFF_PPM_4								3
+#define D_BUFF_TEMP_1								4
+#define D_BUFF_TEMP_2								5
+#define NUM_FLOAT_DATA								6
+#define BYTES_PER_FLOAT								4
+
 #define MOTOR_MANAGEMENT_MEASUREMENT_INTERVAL_MS		(1000000 / 20)	///< time in microseconds, measure at 20hz
 #define MOTOR_MANAGEMENT_TIMEOUT_MS		10000000	///< timeout looking for motor manager 10seconds after startup
 
@@ -96,7 +105,7 @@
 class MOTOR_MANAGEMENT : public device::I2C
 {
 public:
-	MOTOR_MANAGEMENT(int bus = PX4_I2C_BUS_EXPANSION, uint16_t motor_management_addr = MOTOR_MANAGEMENT_ADDR);
+	MOTOR_MANAGEMENT();
 	//Destructor
 	virtual ~MOTOR_MANAGEMENT();
 
@@ -179,8 +188,9 @@ void motor_management_usage();
 
 extern "C" __EXPORT int motor_management_main(int argc, char *argv[]);
 
-MOTOR_MANAGEMENT::MOTOR_MANAGEMENT(int bus, uint16_t motor_management_addr) :
-	I2C("motor_management", MOTOR_MANAGEMENT0_DEVICE_PATH, bus, motor_management_addr, 100000),
+MOTOR_MANAGEMENT::MOTOR_MANAGEMENT() :
+	I2C("motor_management", MOTOR_MANAGEMENT0_DEVICE_PATH, MOTOR_MANAGEMENT_BUS,
+		MOTOR_MANAGEMENT_ADDR, 100000),
 	_enabled(false),
 	_work{},
 	_reports(nullptr),
@@ -252,7 +262,7 @@ MOTOR_MANAGEMENT::test()
 
 		if (updated) {
 			if (orb_copy(ORB_ID(motor_management), sub, &status) == OK) {
-				warnx("V=%4.2f C=%4.2f", status.ppm_1, status.temp_1);
+				warnx("PPM 1=%5.1f Temp 1 =%2.4f", status.ppm_1, status.temp_1);
 			}
 		}
 
@@ -334,18 +344,24 @@ MOTOR_MANAGEMENT::cycle()
 	// set time of reading
 	new_report.timestamp = now;
 
-	union D_Buff {uint8_t D_Buff_byte[4]; float D_Buff_float[1];} D_Buff_Union;
+	union D_Buff {uint8_t D_Buff_byte[BYTES_PER_FLOAT * NUM_FLOAT_DATA]; float D_Buff_float[NUM_FLOAT_DATA];} D_Buff_Union;
 
-	if (read_block(MOTOR_MANAGEMENT_REQUEST_TEMP_1, D_Buff_Union.D_Buff_byte, 4) == OK) {
+	if (read_block(MOTOR_MANAGEMENT_REQUEST_PPM_1, D_Buff_Union.D_Buff_byte,
+		BYTES_PER_FLOAT * NUM_FLOAT_DATA) == OK) {
+
 		// initialise new_report
 		memset(&new_report, 0, sizeof(new_report));
 
-		new_report.ppm_1 = D_Buff_Union.D_Buff_float[0];
+		new_report.ppm_1 = D_Buff_Union.D_Buff_float[D_BUFF_PPM_1];
+		new_report.ppm_2 = D_Buff_Union.D_Buff_float[D_BUFF_PPM_2];
+		new_report.ppm_3 = D_Buff_Union.D_Buff_float[D_BUFF_PPM_3];
+		new_report.ppm_4 = D_Buff_Union.D_Buff_float[D_BUFF_PPM_4];
+		new_report.temp_1 = D_Buff_Union.D_Buff_float[D_BUFF_TEMP_1];
+		new_report.temp_2 = D_Buff_Union.D_Buff_float[D_BUFF_TEMP_2];
 
 		// publish to orb
 		if (_motor_management_topic != -1) {
 			orb_publish(_motor_management_orb_id, _motor_management_topic, &new_report);
-
 		} else {
 			_motor_management_topic = orb_advertise(_motor_management_orb_id, &new_report);
 
@@ -387,7 +403,7 @@ MOTOR_MANAGEMENT::read_reg(uint8_t reg, uint16_t &val)
 uint8_t
 MOTOR_MANAGEMENT::read_block(uint8_t reg, uint8_t *data, uint8_t max_len)
 {
-	_debug_enabled = true;
+
 	uint8_t buff_out[2] {reg, max_len};
 	uint8_t buff_in[max_len];  // buffer to hold results
 
@@ -395,7 +411,6 @@ MOTOR_MANAGEMENT::read_block(uint8_t reg, uint8_t *data, uint8_t max_len)
 
 	// read bytes
 	int ret = transfer(buff_out, 2, buff_in, max_len);
-	debug("Return: %d \n", ret);
 
 	// return zero on failure
 	if (ret != OK) {
@@ -405,7 +420,6 @@ MOTOR_MANAGEMENT::read_block(uint8_t reg, uint8_t *data, uint8_t max_len)
 	// copy data
 	memcpy(data, buff_in, max_len);
 
-    _debug_enabled = false;
 	// return success
 	return ret;
 }
@@ -416,29 +430,17 @@ void
 motor_management_usage()
 {
 	warnx("missing command: try 'start', 'test', 'stop', 'search'");
-	warnx("options:");
-	warnx("    -b i2cbus (%d)", MOTOR_MANAGEMENT_BUS);
-	warnx("    -a addr (0x%x)", MOTOR_MANAGEMENT_ADDR);
 }
 
 int
 motor_management_main(int argc, char *argv[])
 {
-	int i2cdevice = MOTOR_MANAGEMENT_BUS;
-	int motor_managementaddr = MOTOR_MANAGEMENT_ADDR; // 7bit address
 
 	int ch;
 
 	// jump over start/off/etc and look at options first
 	while ((ch = getopt(argc, argv, "a:b:")) != EOF) {
 		switch (ch) {
-		case 'a':
-			motor_managementaddr = strtol(optarg, NULL, 0);
-			break;
-
-		case 'b':
-			i2cdevice = strtol(optarg, NULL, 0);
-			break;
 
 		default:
 			motor_management_usage();
@@ -459,7 +461,7 @@ motor_management_main(int argc, char *argv[])
 
 		} else {
 			// create new global object
-			g_motor_management = new MOTOR_MANAGEMENT(i2cdevice, motor_managementaddr);
+			g_motor_management = new MOTOR_MANAGEMENT();
 
 			if (g_motor_management == nullptr) {
 				errx(1, "new failed");
